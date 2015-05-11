@@ -1,0 +1,20 @@
+Class hierarchy:
+
+String
+ArrayedCollection
+SequenceableCollection
+Collection
+Object
+ProtoObject
+nil
+
+Metaclass hierarchy:
+
+String class
+ArrayedCollection class
+SequenceableCollection class
+Collection class
+Object class
+ProtoObject class
+Class
+
