@@ -4,9 +4,17 @@
 #include "objectMemory.h"
 #include "objectMemory-gc.h"
 #include "objectMemory-objects.h"
+#include "objectMemory-smallIntegers.h"
 
 
-static OP firstRememberedObject = NOT_REMEMBERED;
+// Remembered objects are objects stored in the old space that have pointers
+// to objects in the young space. They are stored as a single-linked list, each
+// remembered object has the pointer to the next one stored in itself, variable
+// firstRememberedObject stores the first one. Objects with NOT_REMEMBERED are
+// not in the set. NO_NEXT_REMEMBERED means the end of the linked list.
+
+
+OP firstRememberedObject = NO_NEXT_REMEMBERED;
 
 
 void addToRemembered(OP op) {
@@ -16,30 +24,8 @@ void addToRemembered(OP op) {
 	}
 	
 	storeNextRemembered(op, firstRememberedObject);
+	
 	firstRememberedObject = op;
-}
-
-void checkAndAddToRemembered(OP op) {
-	if(isNewObject(op)) {
-		return;
-	}
-	
-	int namedPointerSize = fetchNamedPointerLength(op);
-	int indexablePointerSize = fetchIndexablePointerLength(op);
-	
-	for(int index = 0; index < namedPointerSize; ++index) {
-		if(isSurvivorObject(fetchNamedPointer(op, index))) {
-			addToRemembered(op);
-			return;
-		}
-	}
-	for(int index = 0; index < indexablePointerSize; ++index) {
-		if(isSurvivorObject(fetchIndexablePointer(op, index))) {
-			addToRemembered(op);
-			return;
-		}
-	}
-	
 }
 
 void removeFromRemembered(OP op) {
@@ -84,7 +70,7 @@ void processRememberedSet() {
 	int hasNext;
 	int newObjectPointerCount;
 	
-	while(current != NOT_REMEMBERED) {
+	while(current != NOT_REMEMBERED && current != NO_NEXT_REMEMBERED) {
 		newObjectPointerCount = processObjectPointers(current);
 		
 		next = fetchNextRemembered(current);

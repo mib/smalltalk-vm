@@ -1,27 +1,69 @@
 #include "common.h"
 #include "constants.h"
 #include "context-stack.h"
+#include "context-stack-active.h"
+#include "interpreter.h"
 #include "objectMemory-objects.h"
 #include "objectMemory-smallIntegers.h"
 
 
 void stackPush(OP context, OP value) {
-	int sp = incrementNamedSmallInteger(context, METHODCONTEXT_STACK_POINTER);
+	if(context == getActiveContext()) {
+		activeContextStackPush(value);
+		return;
+	}
 	
-	storeIndexablePointer(context, sp - 1, value);
+	int sp = fetchNamedSmallInteger(context, METHODCONTEXT_STACK_POINTER);
+	
+	OP newValueOp = smallIntegerObjectOf(sp + 1);
+	storeNamedPointer(context, METHODCONTEXT_STACK_POINTER, newValueOp);
+	
+	storeIndexablePointer(context, sp, value);
 }
 
 void stackDuplicateTop(OP context) {
-	int sp = incrementNamedSmallInteger(context, METHODCONTEXT_STACK_POINTER);
+	if(context == getActiveContext()) {
+		activeContextStackDuplicateTop();
+		return;
+	}
 	
-	storeIndexablePointer(context, sp - 1, fetchIndexablePointer(context, sp - 2));
+	int sp = fetchNamedSmallInteger(context, METHODCONTEXT_STACK_POINTER);
+	
+	OP newValueOp = smallIntegerObjectOf(sp + 1);
+	storeNamedPointer(context, METHODCONTEXT_STACK_POINTER, newValueOp);
+	
+	OP stackTop = fetchIndexablePointer(context, sp - 1);
+	storeIndexablePointer(context, sp, stackTop);
 }
 
 OP stackPop(OP context) {
-	int sp = decrementNamedSmallInteger(context, METHODCONTEXT_STACK_POINTER);
+	if(context == getActiveContext()) {
+		return activeContextStackPop();
+	}
+	
+	int sp = fetchNamedSmallInteger(context, METHODCONTEXT_STACK_POINTER) - 1;
+	OP newValueOp = smallIntegerObjectOf(sp);
+	storeNamedPointer(context, METHODCONTEXT_STACK_POINTER, newValueOp);
 	
 	return fetchIndexablePointer(context, sp);
 }
+
+void stackDecrement(OP context, int indexFromTop) {
+	if(context == getActiveContext()) {
+		activeContextStackDecrement(indexFromTop);
+	}
+	
+	int sp = fetchNamedSmallInteger(context, METHODCONTEXT_STACK_POINTER) - indexFromTop;
+	OP newValueOp = smallIntegerObjectOf(sp);
+	storeNamedPointer(context, METHODCONTEXT_STACK_POINTER, newValueOp);
+}
+
+void stackIncrement(OP context, int indexFromTop) {
+	stackDecrement(context, -indexFromTop);
+}
+
+// optimization: replaced with macros
+#ifndef OPTIMIZED_MACROS
 
 OP stackPeek(OP context) {
 	return stackPeekDown(context, 0);
@@ -33,12 +75,4 @@ OP stackPeekDown(OP context, int indexFromTop) {
 	return fetchIndexablePointer(context, sp - indexFromTop - 1);
 }
 
-void stackCopy(OP context, int from, int length, OP targetContext) {
-	if(from < 0) {
-		from = fetchNamedSmallInteger(context, METHODCONTEXT_STACK_POINTER) - from - 1;
-	}
-	
-	for(int index = 0; index < length; ++index) {
-		stackPush(targetContext, fetchIndexablePointer(context, from + index));
-	}
-}
+#endif

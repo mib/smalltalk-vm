@@ -4,5 +4,6 @@
 OP characterObjectOf(int);
 int characterValueOf(OP);
 int isCharacterObject(OP);
+unsigned char * stringToCharArray(OP);
 
 #endif

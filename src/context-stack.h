@@ -4,8 +4,7 @@
 void stackPush(OP, OP);
 void stackDuplicateTop(OP);
 OP stackPop(OP);
-OP stackPeek(OP);
-OP stackPeekDown(OP, int);
-void stackCopy(OP, int, int, OP);
+void stackDecrement(OP, int);
+void stackIncrement(OP, int);
 
 #endif

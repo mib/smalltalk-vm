@@ -3,7 +3,7 @@
 
 OP createContextForMethod(OP, OP, OP, OP);
 OP createContextForClosure(OP, OP);
-void initializeClosureContext(OP);
+void resetClosureContext(OP);
 OP createMainContext();
 
 #endif

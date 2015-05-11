@@ -1,14 +1,17 @@
-#include <stdio.h>
-#include <stdlib.h>
 #include "common.h"
 #include "constants.h"
 #include "primitives.h"
+#include "primitives-objects.h"
+#include "primitives-arithmetics.h"
+#include "primitives-fileStreams.h"
 #include "objectMemory.h"
 #include "objectMemory-objects.h"
 #include "objectMemory-smallIntegers.h"
 #include "objectMemory-characters.h"
 #include "context-creation.h"
 #include "context-stack.h"
+#include "interpreter.h"
+#include "interpreter-sends-lookup.h"
 #include "vm.h"
 
 
@@ -48,7 +51,11 @@ OP (* primitiveMethods[128])(OP, OP *) = {
 	// 50
 	NULL, NULL, NULL, NULL, NULL,
 	// 55
-	NULL, NULL, NULL, NULL, NULL,
+	primitiveObject_ShallowCopy,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
 	// 60
 	primitiveObject_At_,
 	primitiveObject_At_Put_,
@@ -84,12 +91,12 @@ OP (* primitiveMethods[128])(OP, OP *) = {
 	// 110
 	primitiveProtoObject_Identical_,
 	primitiveProtoObject_Class,
-	NULL,
-	NULL,
-	NULL,
+	primitiveFileStream_Open, // non-standard
+	primitiveFileStream_Close, // non-standard
+	primitiveFileStream_AtEnd, // non-standard
 	// 115
-	NULL,
-	NULL,
+	primitiveFileStream_Next, // non-standard
+	primitiveFileStream_NextPut_, // non-standard
 	primitiveSystemDictionary_At_, // non-standard
 	primitiveSystemDictionary_At_Put_, // non-standard
 	primitiveSystemDictionary_Size, // non-standard
@@ -98,23 +105,13 @@ OP (* primitiveMethods[128])(OP, OP *) = {
 	primitiveBlockClosure_Value_, // non-standard
 	primitiveBlockClosure_Value_Value_, // non-standard
 	primitiveTranscriptClass_NextPut_, // non-standard
-	NULL,
+	primitiveObject_InspectToLevel_, // non-standard
 	// 125
-	NULL,
+	primitiveBehavior_AddSelector_WithMethod_, // non-standard
 	primitiveContext_Retry, // non-standard
 	primitiveContext_Resume_, // non-standard
 };
 
-
-// ProtoObject>>#==
-OP primitiveProtoObject_Identical_(OP receiver, OP * arguments) {
-	return receiver == arguments[0] ? OBJECT_TRUE_OP : OBJECT_FALSE_OP;
-}
-
-// ProtoObject>>#class
-OP primitiveProtoObject_Class(OP receiver, OP * arguments) {
-	return fetchClass(receiver);
-}
 
 // Behavior>>#basicNew
 OP primitiveBehavior_BasicNew(OP receiver, OP * arguments) {
@@ -131,195 +128,15 @@ OP primitiveBehavior_BasicNew_Bytes_(OP receiver, OP * arguments) {
 	return instantiateClass(receiver, smallIntegerValueOf(arguments[0]), smallIntegerValueOf(arguments[1]));
 }
 
-// Object>>#at:
-OP primitiveObject_At_(OP receiver, OP * arguments) {
-	int index = smallIntegerValueOf(arguments[0]) - 1;
+// Behavior>>#addSelector:withMethod:
+OP primitiveBehavior_AddSelector_WithMethod_(OP receiver, OP * arguments) {
+	// this primitive always fails, it is used to update the method lookup cache;
+	// the original method itself adds the compiled method to the receiver's
+	// method dictionary
 	
-	return fetchIndexablePointer(receiver, index);
-}
-
-// Object>>#at:put:
-OP primitiveObject_At_Put_(OP receiver, OP * arguments) {
-	int index = smallIntegerValueOf(arguments[0]) - 1;
-	OP value = arguments[1];
+	removeSelectorFromMethodLookupCache(arguments[0]);
 	
-	storeIndexablePointer(receiver, index, value);
-	
-	return arguments[1];
-}
-
-// Object>>#size
-OP primitiveObject_Size(OP receiver, OP * arguments) {
-	int indexablePointerLength = fetchIndexablePointerLength(receiver);
-	
-	if(indexablePointerLength) {
-		return smallIntegerObjectOf(indexablePointerLength);
-	}
-	
-	return smallIntegerObjectOf(fetchIndexableByteLength(receiver));
-}
-
-// Object>>#byteAt:
-OP primitiveObject_ByteAt_(OP receiver, OP * arguments) {
-	int index = smallIntegerValueOf(arguments[0]) - 1;
-	
-	return smallIntegerObjectOf(fetchIndexableByte(receiver, index));
-}
-
-// Object>>#byteAt:put:
-OP primitiveObject_ByteAt_Put_(OP receiver, OP * arguments) {
-	int index = smallIntegerValueOf(arguments[0]) - 1;
-	int value = smallIntegerValueOf(arguments[1]);
-	
-	storeIndexableByte(receiver, index, value);
-	
-	return arguments[1];
-}
-
-// Object>>#byteSize
-OP primitiveObject_ByteSize(OP receiver, OP * arguments) {
-	return smallIntegerObjectOf(fetchIndexableByteLength(receiver));
-}
-
-// SmallInteger>>#+
-OP primitiveSmallInteger_Add_(OP receiver, OP * arguments) {
-	if(isSmallIntegerObject(receiver) && isSmallIntegerObject(arguments[0])) {
-		int first = smallIntegerValueOf(receiver);
-		int second = smallIntegerValueOf(arguments[0]);
-		
-		int result = first + second;
-		
-		if(isSmallIntegerValue(result)) {
-			return smallIntegerObjectOf(result);
-		}
-	}
-	
-	return PRIMITIVE_FAIL_OP;
-}
-
-// SmallInteger>>#-
-OP primitiveSmallInteger_Subtract_(OP receiver, OP * arguments) {
-	if(isSmallIntegerObject(receiver) && isSmallIntegerObject(arguments[0])) {
-		int first = smallIntegerValueOf(receiver);
-		int second = smallIntegerValueOf(arguments[0]);
-		
-		int result = first - second;
-		
-		if(isSmallIntegerValue(result)) {
-			return smallIntegerObjectOf(result);
-		}
-	}
-	
-	return PRIMITIVE_FAIL_OP;
-}
-
-// SmallInteger>>#*
-OP primitiveSmallInteger_Times_(OP receiver, OP * arguments) {
-	if(isSmallIntegerObject(receiver) && isSmallIntegerObject(arguments[0])) {
-		int first = smallIntegerValueOf(receiver);
-		int second = smallIntegerValueOf(arguments[0]);
-		
-		int result = first * second;
-		
-		if(isSmallIntegerValue(result)) {
-			return smallIntegerObjectOf(result);
-		}
-	}
-	
-	return PRIMITIVE_FAIL_OP;
-}
-
-// SmallInteger>>#//
-OP primitiveSmallInteger_IntegerDivide_(OP receiver, OP * arguments) {
-	if(isSmallIntegerObject(receiver) && isSmallIntegerObject(arguments[0])) {
-		int first = smallIntegerValueOf(receiver);
-		int second = smallIntegerValueOf(arguments[0]);
-		
-		int result = first / second;
-		
-		if(isSmallIntegerValue(result)) {
-			return smallIntegerObjectOf(result);
-		}
-	}
-	
-	return PRIMITIVE_FAIL_OP;
-}
-
-// SmallInteger>>#\\ (double backslash)
-OP primitiveSmallInteger_Modulo_(OP receiver, OP * arguments) {
-	if(isSmallIntegerObject(receiver) && isSmallIntegerObject(arguments[0])) {
-		int first = smallIntegerValueOf(receiver);
-		int second = smallIntegerValueOf(arguments[0]);
-		
-		int result = first % second;
-		
-		if(isSmallIntegerValue(result)) {
-			return smallIntegerObjectOf(result);
-		}
-	}
-	
-	return PRIMITIVE_FAIL_OP;
-}
-
-// SmallInteger>>#=
-OP primitiveSmallInteger_Equal_(OP receiver, OP * arguments) {
-	if(isSmallIntegerObject(receiver) && isSmallIntegerObject(arguments[0])) {
-		return receiver == arguments[0] ? OBJECT_TRUE_OP : OBJECT_FALSE_OP;
-	}
-	
-	return PRIMITIVE_FAIL_OP;
-}
-
-// SmallInteger>>#~=
-OP primitiveSmallInteger_NotEqual_(OP receiver, OP * arguments) {
-	if(isSmallIntegerObject(receiver) && isSmallIntegerObject(arguments[0])) {
-		return receiver != arguments[0] ? OBJECT_TRUE_OP : OBJECT_FALSE_OP;
-	}
-	
-	return PRIMITIVE_FAIL_OP;
-}
-
-// SmallInteger>>#<
-OP primitiveSmallInteger_LessThan_(OP receiver, OP * arguments) {
-	if(isSmallIntegerObject(receiver) && isSmallIntegerObject(arguments[0])) {
-		return smallIntegerValueOf(receiver) < smallIntegerValueOf(arguments[0])
-			? OBJECT_TRUE_OP
-			: OBJECT_FALSE_OP;
-	}
-	
-	return PRIMITIVE_FAIL_OP;
-}
-
-// SmallInteger>>#<=
-OP primitiveSmallInteger_LessThanOrEqual_(OP receiver, OP * arguments) {
-	if(isSmallIntegerObject(receiver) && isSmallIntegerObject(arguments[0])) {
-		return smallIntegerValueOf(receiver) <= smallIntegerValueOf(arguments[0])
-			? OBJECT_TRUE_OP
-			: OBJECT_FALSE_OP;
-	}
-	
-	return PRIMITIVE_FAIL_OP;
-}
-
-// SmallInteger>>#>
-OP primitiveSmallInteger_GreaterThan_(OP receiver, OP * arguments) {
-	if(isSmallIntegerObject(receiver) && isSmallIntegerObject(arguments[0])) {
-		return smallIntegerValueOf(receiver) > smallIntegerValueOf(arguments[0])
-			? OBJECT_TRUE_OP
-			: OBJECT_FALSE_OP;
-	}
-	
-	return PRIMITIVE_FAIL_OP;
-}
-
-// SmallInteger>>#>=
-OP primitiveSmallInteger_GreaterThanOrEqual_(OP receiver, OP * arguments) {
-	if(isSmallIntegerObject(receiver) && isSmallIntegerObject(arguments[0])) {
-		return smallIntegerValueOf(receiver) >= smallIntegerValueOf(arguments[0])
-			? OBJECT_TRUE_OP
-			: OBJECT_FALSE_OP;
-	}
-	
+	// always fail so that the original method is executed
 	return PRIMITIVE_FAIL_OP;
 }
 
@@ -333,7 +150,7 @@ OP primitiveContext_Resume_(OP receiver, OP * arguments) {
 // Context>>#retry
 OP primitiveContext_Retry(OP receiver, OP * arguments) {
 	// exception handler is tied to a block closure so the context has to be a closure context
-	initializeClosureContext(receiver);
+	resetClosureContext(receiver);
 	switchActiveContext(receiver);
 	return receiver;
 }
@@ -373,13 +190,6 @@ OP helperPrimitiveBlockClosure_ValueWithArguments(OP receiver, OP * arguments, i
 	return PRIMITIVE_VOID_OP;
 }
 
-// Transcript class>>#nextPut:
-OP primitiveTranscriptClass_NextPut_(OP receiver, OP * arguments) {
-	putchar(characterValueOf(arguments[0]));
-	
-	return arguments[0];
-}
-
 // SystemDictionary>>#at:
 OP primitiveSystemDictionary_At_(OP receiver, OP * arguments) {
 	OP keyArray = fetchNamedPointer(receiver, DICTIONARY_KEY_ARRAY);
@@ -400,16 +210,34 @@ OP primitiveSystemDictionary_At_Put_(OP receiver, OP * arguments) {
 	OP keyArray = fetchNamedPointer(receiver, DICTIONARY_KEY_ARRAY);
 	OP keyArraySize = fetchIndexablePointerLength(keyArray);
 	
-	for(int index = 0; index < keyArraySize; ++index) {
-		if(fetchIndexablePointer(keyArray, index) == OBJECT_NIL_OP) {
-			storeIndexablePointer(keyArray, index, arguments[0]);
+	int nilIndex = -1;
+	int index;
+	OP key;
+	
+	for(index = 0; index < keyArraySize; ++index) {
+		key = fetchIndexablePointer(keyArray, index);
+		if(key == arguments[0]) {
+			// the key is already there, overwrite the value
 			OP valueArray = fetchNamedPointer(receiver, DICTIONARY_VALUE_ARRAY);
 			storeIndexablePointer(valueArray, index, arguments[1]);
 			return arguments[1];
 		}
+		else if(key == OBJECT_NIL_OP && nilIndex == -1) {
+			nilIndex = index;
+		}
 	}
 	
-	// no space available
+	// adding to an empty space
+	if(nilIndex != -1) {
+		OP valueArray = fetchNamedPointer(receiver, DICTIONARY_VALUE_ARRAY);
+		storeIndexablePointer(keyArray, nilIndex, arguments[0]);
+		storeIndexablePointer(valueArray, nilIndex, arguments[1]);
+		
+		return arguments[1];
+	}
+	
+	// no available space => fail this primitive and the run the method which
+	// will grow the collection
 	return PRIMITIVE_FAIL_OP;
 }
 

@@ -3,10 +3,11 @@
 #include "constants.h"
 #include "objectMemory.h"
 #include "objectMemory-gc.h"
+#include "objectMemory-gc-old.h"
 #include "objectMemory-smallIntegers.h"
 
 
-// Object memory is allocated as young space (small) and old space (big).
+// Object memory is allocated as young space (smaller) and old space (bigger).
 // Young space is divided into two halves (new and survivor), of which only one
 // (new) is in use at any given moment. After each garbage collection run the
 // halves are switched.
@@ -20,7 +21,9 @@
 // 
 // New objects are allocated as young, except for objects contained in the
 // image that are mostly classes and methods and are therefore long-lived or
-// permanent.
+// permanent. Also, any new symbols, classes and methods are allocated directly
+// in the old space because they are likely to be permanent. Objects that are
+// too big are also allocated in the old space.
 
 
 OBJ youngSpace;
@@ -32,10 +35,19 @@ OBJ youngSpaceEnd;
 OBJ newSpaceEnd;
 OBJ survivorSpaceEnd;
 OBJ oldSpaceEnd;
+OBJ oldSpaceSafeEnd; // old space GC is triggered when this point is reached
+                     // since new space GC is triggered as well and it might
+                     // move (tenure) some objects to the old space
 
+// next available position for allocating new objects
 OBJ nextFreeNewObject;
 OBJ nextFreeSurvivorObject;
 OBJ nextFreeOldObject;
+
+int gcInProgress;
+
+long totalMemoryAllocated;
+long totalObjectsAllocated;
 
 
 void allocateObjectMemory() {
@@ -48,8 +60,13 @@ void allocateObjectMemory() {
 	survivorSpace = nextFreeSurvivorObject = newSpaceEnd;
 	survivorSpaceEnd = youngSpaceEnd;
 	
-	nextFreeOldObject = oldSpace = (OBJ) malloc(DEFAULT_OLD_SPACE_SIZE * sizeof(OP));
+	oldSpace = nextFreeOldObject = (OBJ) malloc(DEFAULT_OLD_SPACE_SIZE * sizeof(OP));
 	oldSpaceEnd = oldSpace + DEFAULT_OLD_SPACE_SIZE;
+	
+	// safe upper bound for old space allocations; if a GC needs to be triggered
+	// for the old space, the young space needs to be GC'd as well and that might
+	// tenure some objects to the old space
+	oldSpaceSafeEnd = oldSpaceEnd - DEFAULT_YOUNG_SPACE_SIZE / 2;
 }
 
 void deallocateObjectMemory() {
@@ -57,11 +74,22 @@ void deallocateObjectMemory() {
 	free(oldSpace);
 }
 
+void noSpaceLeftInOldSpace() {
+	error("Out of space on the heap.");
+}
+
 
 /* allocating and fetching objects */
 
 OBJ allocateNewObjectOfSize(int size) {
-	while(!hasNewSpaceAtLeast(size));
+	++totalObjectsAllocated;
+	totalMemoryAllocated += size;
+	
+	// garbage collection might not free enough space in the new space
+	// so we repeat it until it does - when tenure is triggered
+	while(!hasNewSpaceAtLeast(size)) {
+		garbageCollectNewSpace();
+	}
 	
 	OBJ object = nextFreeNewObject;
 	nextFreeNewObject += size;
@@ -69,17 +97,14 @@ OBJ allocateNewObjectOfSize(int size) {
 	return object;
 }
 
+// optimization: replaced with a macro
+#ifndef OPTIMIZED_MACROS
+
 int hasNewSpaceAtLeast(int size) {
-	if(nextFreeNewObject + size >= newSpaceEnd) {
-		// garbage collection might not free enough space in the new space
-		// so we repeat it until it does - when tenure is triggered
-		garbageCollectNewSpace();
-		
-		return 0;
-	}
-	
-	return 1;
+	return (nextFreeNewObject + size < newSpaceEnd);
 }
+
+#endif
 
 OBJ allocateSurvivorObjectOfSize(int size) {
 	OBJ object = nextFreeSurvivorObject;
@@ -89,9 +114,18 @@ OBJ allocateSurvivorObjectOfSize(int size) {
 }
 
 OBJ allocateOldObjectOfSize(int size) {
-	if(nextFreeOldObject + size >= oldSpaceEnd) {
-		// TODO: trigger GC of old space
-		error("Out of space on the heap.");
+	++totalObjectsAllocated;
+	totalMemoryAllocated += size;
+	
+	// we need to check if the GC isn't already running since the new space GC
+	// allocates old objects when tenuring and will trigger the old space GC
+	// afterwards if needed
+	if(nextFreeOldObject + size >= oldSpaceSafeEnd && !gcInProgress) {
+		garbageCollectOldSpace();
+		
+		if(nextFreeOldObject + size >= oldSpaceSafeEnd) {
+			noSpaceLeftInOldSpace();
+		}
 	}
 	
 	OBJ object = nextFreeOldObject;
@@ -100,7 +134,11 @@ OBJ allocateOldObjectOfSize(int size) {
 	return object;
 }
 
+// used only when loading the image file
 OBJ allocateOldObjectOfSizeAtPosition(int size, int position) {
+	++totalObjectsAllocated;
+	totalMemoryAllocated += size;
+	
 	OBJ object = oldSpace + position;
 	
 	if(nextFreeOldObject < object + size) {
@@ -109,6 +147,10 @@ OBJ allocateOldObjectOfSizeAtPosition(int size, int position) {
 	
 	return object;
 }
+
+
+// optimization: replaced with a macro
+#ifndef OPTIMIZED_MACROS
 
 int isNewObject(OP op) {
 	if(isSmallIntegerObject(op)) {
@@ -135,6 +177,11 @@ int isOldObject(OP op) {
 	return (op & 3) == 0;
 }
 
+#endif
+
+// optimization: replaced with a macro
+#ifndef OPTIMIZED_MACROS
+
 OBJ objectFor(OP op) {
 	if(isSmallIntegerObject(op)) {
 		error("Cannot be a small integer.");
@@ -151,7 +198,8 @@ OP objectPointerFor(OBJ object) {
 	if(object >= oldSpace && object < oldSpaceEnd) {
 		return (object - oldSpace) << 2;
 	}
-	if(object >= youngSpace && object < youngSpaceEnd) {
-		return ((object - youngSpace) << 2) | 2;
-	}
+	
+	return ((object - youngSpace) << 2) | 2;
 }
+
+#endif

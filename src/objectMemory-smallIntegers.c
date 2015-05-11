@@ -5,6 +5,9 @@
 #include "primitives.h"
 
 
+// optimization: replaced with macros
+#ifndef OPTIMIZED_MACROS
+
 int smallIntegerValueOf(OP op) {
 	if(!isSmallIntegerObject(op)) {
 		error("Not a small integer.");
@@ -31,12 +34,17 @@ int isSmallIntegerObject(OP op) {
 }
 
 int isSmallIntegerValue(int value) {
-	// it has to fit in 31 bits
+	// it has to fit in 31 bits (the remaining bit is the tag)
 	return value >= -0x40000000 && value <= 0x3fffffff;
 }
 
+#endif
+
 
 /* small integer helper functions */
+
+// optimization: replaced with macros
+#ifndef OPTIMIZED_MACROS
 
 int fetchNamedSmallInteger(OP op, int fieldIndex) {
 	return smallIntegerValueOf(fetchNamedPointer(op, fieldIndex));
@@ -52,15 +60,14 @@ int incrementNamedSmallInteger(OP op, int fieldIndex) {
 int decrementNamedSmallInteger(OP op, int fieldIndex) {
 	return addToNamedSmallInteger(op, fieldIndex, -1);
 }
+
+#endif
+
 int addToNamedSmallInteger(OP op, int fieldIndex, int diff) {
-	OP primitiveArguments[1] = {smallIntegerObjectOf(diff)};
-	OP value = primitiveSmallInteger_Add_(fetchNamedPointer(op, fieldIndex), primitiveArguments);
+	int value = fetchNamedSmallInteger(op, fieldIndex) + diff;
+	OP valueOp = smallIntegerObjectOf(value);
 	
-	if(value == PRIMITIVE_FAIL_OP) {
-		error("addToNamedSmallInteger: primitive failed\n");
-	}
+	storeNamedPointer(op, fieldIndex, valueOp);
 	
-	storeNamedPointer(op, fieldIndex, value);
-	
-	return smallIntegerValueOf(value);
+	return value;
 }

@@ -4,19 +4,14 @@
 #include <stdio.h>
 
 int runVm(int, char **);
+void parseArguments(int *, char ***);
+void printUsage();
 OP createExceptionHandlerContext();
-void runInterpreter();
 void passArguments(int, char **);
-OP compileScript(char *);
-void runScript();
-void printResult();
-void loadImageFile(char *);
-int getImageFileField(FILE *);
-OP loadScript(char *);
 void processVmRegisters();
+void updateVmRegisters();
+void markAndProcessVmRegisters();
 void allocateAll();
 void deallocateAll();
-void switchActiveContext(OP);
-OP getActiveContext();
 
 #endif

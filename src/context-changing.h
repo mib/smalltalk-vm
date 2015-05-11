@@ -1,10 +1,10 @@
 #ifndef __CONTEXT_CHANGING_H__
 #define __CONTEXT_CHANGING_H__
 
-#include <stdio.h>
-
-void returnToContext(OP, OP);
-void returnToParentContext(OP);
-void returnFromClosure(OP);
+void returnToContext(OP);
+void returnFromMethod();
+void returnValueFromMethod(OP);
+void returnFromClosure();
+void returnValueFromClosure(OP);
 
 #endif
